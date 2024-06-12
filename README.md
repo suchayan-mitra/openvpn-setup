@@ -201,6 +201,208 @@ Or, if you are using a Windows machine with PuTTY, you can use `pscp`:
 pscp your_username@your_vm_ip:/path/to/vpn-config-backup.zip C:\path\to\local\directory\
 ```
 
+## Updates for IPLEAK Fixes
+
+### Final Configuration Files
+
+#### `server.conf`
+```conf
+port 1194
+proto udp
+dev tun
+
+cipher AES-256-GCM
+auth SHA256
+
+ca /usr/share/easy-rsa/pki/ca.crt
+cert /usr/share/easy-rsa/pki/issued/server.crt
+key /usr/share/easy-rsa/pki/private/server.key
+dh /usr/share/easy-rsa/pki/dh.pem
+tls-auth /etc/openvpn/ta.key 0
+
+server 10.8.0.0 255.255.255.0
+server-ipv6 fd00:1234:5678::/64  # Replace with your desired IPv6 subnet
+
+ifconfig-pool-persist ipp.txt
+
+keepalive 10 120
+persist-key
+persist-tun
+
+status /var/log/openvpn-status.log
+log /var/log/openvpn.log
+verb 3
+
+# Push DNS changes to redirect all traffic through the VPN
+push "redirect-gateway def1 bypass-dhcp"
+push "dhcp-option DNS 208.67.222.222"
+push "dhcp-option DNS 208.67.220.220"
+
+# Ensure IPv6 traffic is also redirected through the VPN
+push "redirect-gateway ipv6"
+push "route-ipv6 2000::/3"
+push "dhcp-option DNS6 2620:0:ccc::2"
+push "dhcp-option DNS6 2620:0:ccd::2"
+
+topology subnet
+
+# Enable IP forwarding and NAT (Network Address Translation)
+script-security 2
+up /etc/openvpn/scripts/up.sh
+down /etc/openvpn/scripts/down.sh
+```
+
+#### `client.ovpn`
+```conf
+client
+dev tun
+proto udp
+remote YOUR_SERVER_IP 1194
+resolv-retry infinite
+nobind
+persist-key
+persist-tun
+remote-cert-tls server
+auth SHA256
+verb 3
+key-direction 1
+keepalive 10 120
+data-ciphers AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305
+
+<ca>
+-----BEGIN CERTIFICATE-----
+[Your CA certificate here]
+-----END CERTIFICATE-----
+</ca>
+
+<cert>
+[Your client certificate here]
+-----END CERTIFICATE-----
+</cert>
+
+<key>
+[Your client private key here]
+-----END PRIVATE KEY-----
+</key>
+
+<tls-auth>
+[Your TLS auth key here]
+-----END OpenVPN Static key V1-----
+</tls-auth>
+
+cipher AES-256-GCM
+ncp-ciphers AES-256-GCM
+verb 3
+
+block-outside-dns
+
+tun-ipv6
+redirect-gateway ipv6
+
+# Disable IPv6 to prevent leaks
+pull-filter ignore "route-ipv6"
+```
+
+#### `up.sh`
+```sh
+#!/bin/sh
+# Enable IPv4 forwarding
+echo 1 > /proc/sys/net/ipv4/ip_forward
+# Enable IPv6 forwarding
+echo 1 > /proc/sys/net/ipv6/conf/all/forwarding
+
+# Enable NAT for IPv4
+iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o eth0 -j MASQUERADE
+
+# Enable NAT for IPv6
+ip6tables -t nat -A POSTROUTING -s 2001:db8:0:123::/64 -o eth0 -j MASQUERADE
+
+# Ensure the firewall is allowing traffic
+iptables -A FORWARD -i tun0 -o eth0 -j ACCEPT
+iptables -A FORWARD -i eth0 -o tun0 -j ACCEPT
+ip6tables -A FORWARD -i tun0 -o eth0 -j ACCEPT
+ip6tables -A FORWARD -i eth0 -o tun0 -j ACCEPT
+```
+
+#### `down.sh`
+```sh
+#!/bin/sh
+# Disable IPv4 forwarding
+echo 0 > /proc/sys/net/ipv4/ip_forward
+# Disable IPv6 forwarding
+echo 0 > /proc/sys/net/ipv6/conf/all/forwarding
+
+# Remove NAT for IPv4
+iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -o eth0 -j MASQUERADE
+
+# Remove NAT for IPv6
+ip6tables -t nat -D POSTROUTING -s 2001:db8:0:123::/64 -o eth0 -j MASQUERADE
+
+# Remove forwarding rules
+iptables -D FORWARD -i tun0 -o eth0 -j ACCEPT
+iptables -D FORWARD -i eth0 -o tun0 -j ACCEPT
+ip6tables -D FORWARD -i tun0 -o eth0 -j ACCEPT
+ip6tables -D FORWARD -i eth0 -o tun0 -j ACCEPT
+```
+
+### Commands to Set Up and Download Configuration Files
+
+1. **Create Directory for Scripts:**
+    ```sh
+    sudo mkdir -p /etc/openvpn/scripts
+    ```
+
+2. **Create and Set Permissions for `up.sh` Script:**
+    ```sh
+    sudo nano /etc/openvpn/scripts/up.sh
+    sudo chmod +x /etc/openvpn/scripts/up.sh
+    ```
+
+3. **Create and Set Permissions for `down.sh` Script:**
+    ```sh
+    sudo nano /etc/openvpn/scripts/down.sh
+    sudo chmod +x /etc/openvpn/scripts/down.sh
+    ```
+
+4. **Restart OpenVPN Service:**
+    ```sh
+    sudo systemctl restart openvpn@server
+    ```
+
+5. **Enable Firewall Rules (if `ufw` is being used):**
+    ```sh
+    sudo ufw allow 1194/udp
+    sudo ufw enable
+    ```
+
+### Commands to Download Configuration Files for Future Use
+
+You can use the following commands to download the configuration files to your local machine for backup purposes.
+
+1. **Download `server.conf`:**
+    ```sh
+    scp user@your_server_ip:/etc/openvpn/server.conf /path/to/local/directory/server.conf
+    ```
+
+2. **Download `client.ovpn`:**
+    ```sh
+    scp user@your_server_ip:/path/to/your/client.ovpn /path/to/local/directory/client.ovpn
+    ```
+
+3. **Download `up.sh`:**
+    ```sh
+    scp user@your_server_ip:/etc/openvpn/scripts/up.sh /path/to/local/directory/up.sh
+    ```
+
+4. **Download `down.sh`:**
+    ```sh
+    scp user@your_server_ip:/etc/openvpn/scripts/down.sh /path/to/local/directory/down.sh
+    ```
+
+Replace `user` with your username, `your_server_ip` with the IP address of your server, and `/path/to/local/directory` with the directory on your local machine where you want to save the files.
+
+With these configurations and commands, you should have a fully functioning OpenVPN setup with IPv4, and you'll be able to download and back up your configuration files for future use.
+
 ## License
 
 [MIT](LICENSE)
