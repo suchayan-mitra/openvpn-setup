@@ -1,6 +1,3 @@
-Sure! Here's the content formatted for a GitHub README file:
-
-```markdown
 # OpenVPN Setup on Azure VM
 
 ## Step-by-Step Guide
@@ -14,7 +11,6 @@ Sure! Here's the content formatted for a GitHub README file:
 2. **SSH into the VM**:
    ```bash
    ssh your_username@your_vm_ip
-   ```
 
 3. **Update and install necessary packages**:
    ```bash
